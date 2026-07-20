@@ -1413,10 +1413,8 @@ function updateBgmForScreen(name){
   await loadBg();
   /* ロゴ画像が無ければ文字組みのタイトルに切り替える */
   if(!await probe('images/logo.png')) document.body.classList.add('noLogo');
-  if(S){
-    if(!S.sched)S.sched=buildSchedule();
-    await rescanImages();
-  }
+  if(S && !S.sched) S.sched=buildSchedule();
+  await rescanImages();
   go('title');   // 起動時はいつもタイトル画面から
   /* 最初のタップで音声を解禁する（ブラウザの自動再生制限）*/
   document.addEventListener('pointerdown',()=>{
