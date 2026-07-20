@@ -1,0 +1,20 @@
+# OneDrive / Windows
+desktop.ini
+Thumbs.db
+ehthumbs.db
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+
+# 一時ファイル
+~$*
+*.tmp
+
+# 進捗データの書き出し（個人情報・パスワードが入るため公開しない）
+natsuyasumi_*.json
