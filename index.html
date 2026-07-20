@@ -206,8 +206,34 @@ body.noLogo .titleFall{display:block}
    repeating-linear-gradient(45deg,rgba(217,180,92,.09) 0 10px,transparent 10px 20px),
    linear-gradient(160deg,#14120c,#000);
   border-color:var(--gold2);color:var(--gold)}
+.back img{width:86%;height:auto;filter:drop-shadow(0 4px 14px rgba(0,0,0,.8))}
 .back .mk{font-size:56px;opacity:.75}
-.back .lb{margin-top:12px;letter-spacing:.5em;font-size:13px;padding-left:.5em}
+
+/* ---- カード獲得演出（大量のカードが集まって散る）---- */
+#swarm{position:fixed;inset:0;z-index:61;pointer-events:none;display:none}
+#swarm.on{display:block}
+.swcard{position:fixed;border-radius:12px;overflow:hidden;
+  will-change:transform,opacity;backface-visibility:hidden;
+  border:1px solid var(--gold2);
+  background:
+    repeating-linear-gradient(45deg,rgba(217,180,92,.10) 0 10px,transparent 10px 20px),
+    linear-gradient(160deg,#14120c,#000);
+  display:grid;place-items:center;
+  box-shadow:0 10px 34px rgba(0,0,0,.65)}
+.swcard img{width:86%;height:auto}
+.swcard .mk{font-size:40px;opacity:.7;color:var(--gold)}
+/* 中央でためる光（オーバーレイの内側に置き、カードの後ろに敷く）*/
+#chargeGlow{position:absolute;inset:0;z-index:0;pointer-events:none;opacity:0;
+  background:radial-gradient(circle at var(--gx,50%) var(--gy,50%),
+    rgba(255,236,180,.85) 0%, rgba(217,180,92,.35) 22%, rgba(217,180,92,0) 58%)}
+#getOverlay>div:not(#chargeGlow){position:relative;z-index:1}
+/* 画面フラッシュ */
+#flash{position:fixed;inset:0;z-index:70;pointer-events:none;opacity:0;background:#fff}
+/* 光る演出。3D反転を壊さないよう filter ではなく box-shadow で光らせる */
+.stage.lit .face2{box-shadow:0 0 30px rgba(255,225,150,.5),0 0 84px rgba(217,180,92,.32),
+  0 0 60px rgba(255,255,255,.07) inset}
+.stage.lit{animation:litpulse 1.6s ease-in-out infinite}
+@keyframes litpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.018)}}
 .front{background:linear-gradient(165deg,#17161a,#000);transform:rotateY(180deg);
   color:var(--ink);box-shadow:0 0 60px rgba(255,255,255,.06) inset}
 .front.rare{border-color:rgba(119,211,230,.55);box-shadow:0 0 60px rgba(119,211,230,.13) inset}
@@ -538,11 +564,18 @@ th{color:var(--sub);font-size:11px;letter-spacing:.1em}
 </nav>
 
 <!-- ============ GET OVERLAY ============ -->
+<div id="swarm"></div>
+<div id="flash"></div>
+
 <div id="getOverlay">
+  <div id="chargeGlow"></div>
   <div>
     <div class="stage">
       <div class="flipcard" id="flipcard">
-        <div class="face2 back"><div class="mk">🤖</div><div class="lb">ROBO</div></div>
+        <div class="face2 back">
+          <img src="images/logo.png" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+          <div class="mk" style="display:none">🤖</div>
+        </div>
         <div class="face2 front" id="cardFront"></div>
       </div>
     </div>
@@ -896,18 +929,143 @@ function showGet(r,msg){
     <div class="nm">${esc(r.name)}</div>
     <div class="rr ${r.rarity==='normal'?'':r.rarity}">${RARITY[r.rarity]}</div>
     ${r.desc?`<div class="ds">${esc(r.desc)}</div>`:''}`;
-  document.getElementById('getMsg').textContent=msg||'';
+  document.getElementById('getMsg').textContent='';
   document.getElementById('getNext').style.display='none';
   card.className='flipcard'; ov.classList.add('on');
-  void card.offsetWidth;
-  card.classList.add('shake'); se('shake');
-  setTimeout(()=>{
-    card.classList.remove('shake'); void card.offsetWidth;
-    card.classList.add('turn'); se('flip');
-    setTimeout(()=>{ se(r.rarity==='gacha'?'fanfare':'get'); document.getElementById('getNext').style.display='inline-block'; },700);
-  },1270);
+  runCardShow(r,msg);
 }
-function closeGet(){ document.getElementById('getOverlay').classList.remove('on');
+
+/* ---------- カード獲得の演出 ----------
+   ① 画面外から大量のカードが飛んできて、中央でくしゃくしゃに重なる
+   ② ガタガタ震えたあと、いっせいに散り散りに飛び去る
+   ③ 残った1枚が中央へ寄って拡大し、光をためる
+   ④ 画面がフラッシュして、そのまま表にめくれる
+   カードの位置は本物のカード(#flipcard)の矩形に合わせているので、
+   最後に入れ替わっても見た目が飛ばない。*/
+const SWARM_N=26;
+function runCardShow(r,msg){
+  const stage=document.querySelector('.stage');
+  const card=document.getElementById('flipcard');
+  const swarm=document.getElementById('swarm');
+  const glow=document.getElementById('chargeGlow');
+  const flash=document.getElementById('flash');
+  const msgEl=document.getElementById('getMsg');
+  const reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  stage.classList.remove('lit');
+  card.style.visibility='hidden';
+  const rc=card.getBoundingClientRect();
+  const cx=rc.left+rc.width/2, cy=rc.top+rc.height/2;
+  const R=Math.max(innerWidth,innerHeight)*0.85;
+  glow.style.setProperty('--gx',cx+'px');
+  glow.style.setProperty('--gy',cy+'px');
+
+  /* 動きを減らす設定のときは、演出を飛ばしてすぐめくる */
+  if(reduce){
+    card.style.visibility='';
+    msgEl.textContent=msg||'';
+    card.classList.add('turn'); se('flip');
+    setTimeout(()=>{ finishCard(r); },700);
+    return;
+  }
+
+  swarm.innerHTML=''; swarm.classList.add('on');
+  const logoOK=!document.body.classList.contains('noLogo');
+  const cards=[];
+  for(let i=0;i<SWARM_N;i++){
+    const el=document.createElement('div');
+    el.className='swcard';
+    el.style.width=rc.width+'px'; el.style.height=rc.height+'px';
+    el.style.left=rc.left+'px';   el.style.top=rc.top+'px';
+    /* 26枚ぶん描くので、裏面は縮小版のロゴを使う（等倍だと端末が重くなる）*/
+    el.innerHTML=logoOK?'<img src="images/logo-sm.png" alt="">':'<div class="mk">🤖</div>';
+    swarm.appendChild(el); cards.push(el);
+  }
+  const pick=Math.floor(Math.random()*SWARM_N);
+  const rnd=(a,b)=>a+Math.random()*(b-a);
+  const SM=.40;                                   // 山になっているときの縮小率
+
+  /* ① 飛んでくる */
+  cards.forEach((el,i)=>{
+    const a=rnd(0,Math.PI*2);
+    const from=`translate(${Math.cos(a)*R}px,${Math.sin(a)*R}px) rotate(${rnd(-220,220)}deg) scale(${SM*.8})`;
+    const to  =`translate(${rnd(-46,46)}px,${rnd(-34,34)}px) rotate(${rnd(-34,34)}deg) scale(${SM})`;
+    el.style.transform=to;
+    el.animate([{transform:from,opacity:0},{opacity:1,offset:.25},{transform:to,opacity:1}],
+      {duration:620,delay:i*14,easing:'cubic-bezier(.18,.9,.3,1)',fill:'both'});
+  });
+  se('swoosh');
+
+  /* ② 震えてから散る */
+  const T_RATTLE=620+SWARM_N*14+60;
+  setTimeout(()=>{
+    se('rattle');
+    cards.forEach(el=>{
+      const t=el.style.transform;
+      el.animate([{transform:t},
+        {transform:t+' translate(5px,-4px)'},{transform:t+' translate(-6px,3px)'},
+        {transform:t+' translate(4px,4px)'},{transform:t}],
+        {duration:360,easing:'linear'});
+    });
+  },T_RATTLE);
+
+  const T_SCATTER=T_RATTLE+380;
+  setTimeout(()=>{
+    se('scatter');
+    cards.forEach((el,i)=>{
+      if(i===pick) return;
+      const a=rnd(0,Math.PI*2);
+      el.animate([{transform:el.style.transform,opacity:1},
+        {transform:`translate(${Math.cos(a)*R*1.15}px,${Math.sin(a)*R*1.15}px) rotate(${rnd(-720,720)}deg) scale(${rnd(.2,.5)})`,opacity:0}],
+        {duration:560,delay:Math.random()*130,easing:'cubic-bezier(.4,0,.9,.4)',fill:'forwards'});
+    });
+    /* 残った1枚を中央へ */
+    const win=cards[pick];
+    win.style.zIndex='2';
+    win.animate([{transform:win.style.transform},
+      {transform:`translate(0,0) rotate(0deg) scale(${SM*1.25})`,offset:.55},
+      {transform:'translate(0,0) rotate(0deg) scale(1)'}],
+      {duration:900,easing:'cubic-bezier(.2,1.4,.4,1)',fill:'forwards'});
+  },T_SCATTER);
+
+  /* ③ 光をためる */
+  const T_CHARGE=T_SCATTER+420;
+  setTimeout(()=>{
+    se('charge');
+    glow.animate([{opacity:0},{opacity:.9}],{duration:520,easing:'ease-in',fill:'forwards'});
+  },T_CHARGE);
+
+  /* ④ フラッシュ → 本物のカードに入れ替えてめくる */
+  const T_FLASH=T_SCATTER+900;
+  setTimeout(()=>{
+    flash.animate([{opacity:0},{opacity:.98,offset:.18},{opacity:0}],
+      {duration:620,easing:'ease-out'});
+    se('flash');
+    setTimeout(()=>{
+      swarm.classList.remove('on'); swarm.innerHTML='';
+      /* 完全には消さず、めくれたカードを光だまりの中に置く */
+      glow.animate([{opacity:.9},{opacity:.32}],{duration:900,fill:'forwards'});
+      card.style.visibility='';
+      stage.classList.add('lit');
+      void card.offsetWidth;
+      card.classList.add('turn'); se('flip');
+      msgEl.textContent=msg||'';
+      setTimeout(()=>finishCard(r),760);
+    },110);
+  },T_FLASH);
+}
+function finishCard(r){
+  se(r.rarity==='gacha'?'fanfare':'get');
+  document.getElementById('getNext').style.display='inline-block';
+}
+function closeGet(){
+  document.getElementById('getOverlay').classList.remove('on');
+  /* 演出の後片付け（次回に持ち越さない）*/
+  const glow=document.getElementById('chargeGlow'), sw=document.getElementById('swarm');
+  glow.getAnimations().forEach(a=>a.cancel()); glow.style.opacity='';
+  sw.classList.remove('on'); sw.innerHTML='';
+  document.querySelector('.stage').classList.remove('lit');
+  document.getElementById('flipcard').style.visibility='';
   const done=Object.values(S.kids[cur].days).filter(r=>r.approved).length;
   if(done>=allDates().length){renderHome();go('done');}
   else if(curScreen==='gacha'){renderGacha();navBadge();}
@@ -1317,6 +1475,17 @@ function se(kind){
     else if(kind==='open'){beep(740,.07,'triangle',.08);setTimeout(()=>beep(1110,.1,'triangle',.055),40);}
     else if(kind==='off')beep(300,.08,'sine',.1);
     else if(kind==='shake'){[0,120,240].forEach((d,i)=>setTimeout(()=>beep(220+i*40,.07,'square',.08),d));}
+    /* --- カード演出 --- */
+    /* カードが次々飛んでくる：短い高音を細かく散らす */
+    else if(kind==='swoosh'){for(let i=0;i<14;i++)setTimeout(()=>beep(700+Math.random()*900,.05,'triangle',.05),i*38);}
+    /* 山がガタガタ震える */
+    else if(kind==='rattle'){for(let i=0;i<8;i++)setTimeout(()=>beep(160+Math.random()*90,.045,'square',.05),i*44);}
+    /* 散り散りに飛び去る：下降音 */
+    else if(kind==='scatter'){for(let i=0;i<10;i++)setTimeout(()=>beep(1200-i*95,.07,'triangle',.055),i*32);}
+    /* 光をためる：上昇音 */
+    else if(kind==='charge'){for(let i=0;i<12;i++)setTimeout(()=>beep(320+i*95,.09,'sine',.06),i*42);}
+    /* フラッシュ */
+    else if(kind==='flash'){beep(1760,.16,'triangle',.14);setTimeout(()=>beep(2340,.2,'sine',.09),40);}
     else if(kind==='flip')beep(520,.18,'triangle',.12);
     else if(kind==='get'){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,.22,'triangle'),i*95));}
     else if(kind==='fanfare'){[523,659,784,1047,1319].forEach((f,i)=>setTimeout(()=>beep(f,.3,'sawtooth',.13),i*90));}
