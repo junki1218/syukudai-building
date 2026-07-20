@@ -364,14 +364,17 @@ th{color:var(--sub);font-size:11px;letter-spacing:.1em}
 <section id="s-gacha" class="screen">
   <h1>ロボガチャ</h1>
 
-  <!-- 達成ガチャ：その日の宿題を おわらせると 1かい -->
+  <!-- 達成ガチャ：承認したその場で1枚もらえる。ここは受け取り残しの救済用 -->
   <div class="panel center">
     <h2>たっせいガチャ</h2>
     <div style="font-size:58px" id="dIcon">🎁</div>
-    <p class="muted">その日の しゅくだいを ぜんぶ おわらせると <b>1かい</b> ひけます。</p>
-    <div style="font-weight:800;font-size:19px;margin:12px 0 14px"
-      >ひける かいすう：<span id="dLeft">0</span> かい</div>
-    <button class="btn-main" id="dBtn" style="width:100%" onclick="pullDaily()">たっせいガチャを ひく</button>
+    <p class="muted">その日の しゅくだいを ぜんぶ おわらせると、<br>
+      <b>その場で カードが 1まい</b> もらえます。<br>ここに来る ひつようは ありません。</p>
+    <div id="dPend" style="display:none">
+      <div style="font-weight:800;font-size:19px;margin:12px 0 14px"
+        >うけとって いない ぶん：<span id="dLeft">0</span> まい</div>
+      <button class="btn-main" id="dBtn" style="width:100%" onclick="pullDaily()">ロボットを うけとる</button>
+    </div>
     <div class="muted" style="margin-top:12px" id="dInfo"></div>
   </div>
 
@@ -834,8 +837,9 @@ function renderToday(){
   if(rec.approved){
     st.className='status ok';
     const got=k.owned.find(o=>o.date===iso&&o.via==='day');
-    st.innerHTML=`🎉 たっせい！${got?` ${esc(robotById(got.id)?.name||'')} を ゲットしました`:' たっせいガチャが ひけます'}`;
-    ap.innerHTML=got?'':`<button class="btn-main" style="width:100%" onclick="go('gacha')">🎁 たっせいガチャへ</button>`;
+    st.innerHTML=`🎉 たっせい！${got?` ${esc(robotById(got.id)?.name||'')} を ゲットしました`:''}`;
+    /* まだ渡せていない日（画像が無かったなど）だけ、あとから受け取れるようにする */
+    ap.innerHTML=got?'':`<button class="btn-main" style="width:100%" onclick="claimDay('${iso}')">🎁 ロボットを うけとる</button>`;
   }else if(ready){
     st.className='status wait'; st.textContent='ぜんぶ できた！ おとうさんを よんでね';
     ap.innerHTML=`<div class="panel"><h2 style="font-size:17px">おとうさんの パスワード</h2>
@@ -856,10 +860,10 @@ function approveDay(){
   rec.approved=true; rec.approvedAt=new Date().toISOString();
   if(rec.checks.chal && !rec.ptGiven){ rec.ptGiven=true; k.ptEarned+=2; }
   save();
-  /* ロボットはここでは渡さず「たっせいガチャ」を1回ぶん解放する */
-  se('fanfare');
-  toast('たっせい！ たっせいガチャが 1かい ひけます');
-  go('gacha');
+  /* その場で1枚わたす（ガチャ画面に行く必要はない）*/
+  const r=grantRobot(cur,'day',iso);
+  if(r) showGet(r,'🎉 ロボットが やってきた！');
+  else { toast('きょうも おつかれさま！'); renderToday(); }
 }
 
 /* ---------- robot grant ---------- */
@@ -963,15 +967,16 @@ function bonusPt(k){ return (k.ptEarned||0) - bonusSpent(k.gachaCount||0); }
 function renderGacha(){
   const k=S.kids[cur];
 
-  /* --- たっせいガチャ --- */
+  /* --- たっせいガチャ（通常は承認したその場で渡している）--- */
   const pend=pendingDates(k), dayLeft=poolFor('day').length;
+  document.getElementById('dPend').style.display=pend.length?'block':'none';
   document.getElementById('dLeft').textContent=pend.length;
   document.getElementById('dIcon').textContent=pend.length?'🎁':'📦';
-  document.getElementById('dBtn').disabled=!pend.length||dayLeft===0;
+  if(pend.length) document.getElementById('dBtn').disabled=dayLeft===0;
   document.getElementById('dInfo').textContent=
-    dayLeft===0 ? 'ひける ロボットが もう いません'
-    : pend.length ? `${fmtJP(pend[0])} の ぶん ／ のこり ${dayLeft}たい`
-    : 'きょうの しゅくだいを おわらせよう！';
+    dayLeft===0 ? 'もらえる ロボットが もう いません'
+    : pend.length ? `${fmtJP(pend[0])} の ぶんが のこっています ／ あと ${dayLeft}たい`
+    : `まだ もらえる ロボット：あと ${dayLeft}たい`;
 
   /* --- ボーナスガチャ --- */
   const pt=Math.max(0,bonusPt(k)), cost=bonusCost(k.gachaCount||0);
@@ -985,13 +990,16 @@ function renderGacha(){
     : pt>=cost ? `いま ひけます！ ／ のこり ${left}たい`
     : `あと ${cost-pt}pt で ひけます ／ のこり ${left}たい`;
 }
-/* 達成ガチャ：いちばん古い未消化の日から引く（その日の記録として残す）*/
+/* 受け取り残しの救済：いちばん古い未受領の日から1枚わたす */
 function pullDaily(){
   const k=S.kids[cur], pend=pendingDates(k);
-  if(!pend.length){toast('まだ ひけません');return;}
-  const r=grantRobot(cur,'day',pend[0]);
-  if(r) showGet(r,'🎉 ロボットが やってきた！');
+  if(!pend.length){toast('うけとって いない ぶんは ありません');return;}
+  claimDay(pend[0]);
   renderGacha();
+}
+function claimDay(iso){
+  const r=grantRobot(cur,'day',iso);
+  if(r) showGet(r,'🎉 ロボットが やってきた！');
 }
 function pullGacha(){
   const k=S.kids[cur], cost=bonusCost(k.gachaCount||0);
